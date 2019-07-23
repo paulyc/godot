@@ -78,11 +78,6 @@ struct Version {
 String to_string(Type p_type);
 } // namespace APIAssembly
 
-#define SCRIPTS_DOMAIN GDMono::get_singleton()->get_scripts_domain()
-#ifdef TOOLS_ENABLED
-#define TOOLS_DOMAIN GDMono::get_singleton()->get_tools_domain()
-#endif
-
 class GDMono {
 
 	bool runtime_initialized;
@@ -90,9 +85,6 @@ class GDMono {
 
 	MonoDomain *root_domain;
 	MonoDomain *scripts_domain;
-#ifdef TOOLS_ENABLED
-	MonoDomain *tools_domain;
-#endif
 
 	bool core_api_assembly_out_of_sync;
 #ifdef TOOLS_ENABLED
@@ -104,26 +96,26 @@ class GDMono {
 	GDMonoAssembly *project_assembly;
 #ifdef TOOLS_ENABLED
 	GDMonoAssembly *editor_api_assembly;
-	GDMonoAssembly *editor_tools_assembly;
+	GDMonoAssembly *tools_assembly;
+	GDMonoAssembly *tools_project_editor_assembly;
 #endif
 
 	HashMap<uint32_t, HashMap<String, GDMonoAssembly *> > assemblies;
 
 	void _domain_assemblies_cleanup(uint32_t p_domain_id);
 
+	bool _are_api_assemblies_out_of_sync();
+
 	bool _load_corlib_assembly();
 	bool _load_core_api_assembly();
 #ifdef TOOLS_ENABLED
 	bool _load_editor_api_assembly();
-	bool _load_editor_tools_assembly();
+	bool _load_tools_assemblies();
 #endif
 	bool _load_project_assembly();
 
-	bool _load_api_assemblies();
-
-#ifdef TOOLS_ENABLED
-	String _get_api_assembly_metadata_path();
-#endif
+	bool _try_load_api_assemblies();
+	void _load_api_assemblies();
 
 	void _install_trace_listener();
 
@@ -131,10 +123,6 @@ class GDMono {
 
 	Error _load_scripts_domain();
 	Error _unload_scripts_domain();
-
-#ifdef TOOLS_ENABLED
-	Error _load_tools_domain();
-#endif
 
 	uint64_t api_core_hash;
 #ifdef TOOLS_ENABLED
@@ -168,8 +156,8 @@ public:
 #endif
 
 #ifdef TOOLS_ENABLED
-	void metadata_set_api_assembly_invalidated(APIAssembly::Type p_api_type, bool p_invalidated);
-	bool metadata_is_api_assembly_invalidated(APIAssembly::Type p_api_type);
+	bool copy_prebuilt_api_assembly(APIAssembly::Type p_api_type);
+	String update_api_assemblies_from_prebuilt();
 #endif
 
 	static GDMono *get_singleton() { return singleton; }
@@ -185,16 +173,14 @@ public:
 	_FORCE_INLINE_ bool is_finalizing_scripts_domain() { return finalizing_scripts_domain; }
 
 	_FORCE_INLINE_ MonoDomain *get_scripts_domain() { return scripts_domain; }
-#ifdef TOOLS_ENABLED
-	_FORCE_INLINE_ MonoDomain *get_tools_domain() { return tools_domain; }
-#endif
 
 	_FORCE_INLINE_ GDMonoAssembly *get_corlib_assembly() const { return corlib_assembly; }
 	_FORCE_INLINE_ GDMonoAssembly *get_core_api_assembly() const { return core_api_assembly; }
 	_FORCE_INLINE_ GDMonoAssembly *get_project_assembly() const { return project_assembly; }
 #ifdef TOOLS_ENABLED
 	_FORCE_INLINE_ GDMonoAssembly *get_editor_api_assembly() const { return editor_api_assembly; }
-	_FORCE_INLINE_ GDMonoAssembly *get_editor_tools_assembly() const { return editor_tools_assembly; }
+	_FORCE_INLINE_ GDMonoAssembly *get_tools_assembly() const { return tools_assembly; }
+	_FORCE_INLINE_ GDMonoAssembly *get_tools_project_editor_assembly() const { return tools_project_editor_assembly; }
 #endif
 
 #if defined(WINDOWS_ENABLED) && defined(TOOLS_ENABLED)
@@ -202,6 +188,7 @@ public:
 #endif
 
 	GDMonoClass *get_class(MonoClass *p_raw_class);
+	GDMonoClass *get_class(const StringName &p_namespace, const StringName &p_name);
 
 #ifdef GD_MONO_HOT_RELOAD
 	Error reload_scripts_domain();
@@ -214,6 +201,7 @@ public:
 	Error finalize_and_unload_domain(MonoDomain *p_domain);
 
 	void initialize();
+	void initialize_load_assemblies();
 
 	GDMono();
 	~GDMono();
@@ -267,7 +255,7 @@ public:
 	(void)__gdmono__scope__exit__domain__unload__;
 
 class _GodotSharp : public Object {
-	GDCLASS(_GodotSharp, Object)
+	GDCLASS(_GodotSharp, Object);
 
 	friend class GDMono;
 
@@ -275,6 +263,8 @@ class _GodotSharp : public Object {
 
 	List<NodePath *> np_delete_queue;
 	List<RID *> rid_delete_queue;
+
+	void _reload_assemblies(bool p_soft_reload);
 
 protected:
 	static _GodotSharp *singleton;

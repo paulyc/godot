@@ -356,7 +356,9 @@ void Area::_area_inout(int p_status, const RID &p_area, int p_instance, int p_ar
 
 	Map<ObjectID, AreaState>::Element *E = area_map.find(objid);
 
-	ERR_FAIL_COND(!area_in && !E);
+	if (!area_in && !E) {
+		return; //likely removed from the tree
+	}
 
 	locked = true;
 
@@ -750,13 +752,12 @@ Area::Area() :
 	gravity_is_point = false;
 	gravity_distance_scale = 0;
 	linear_damp = 0.1;
-	angular_damp = 1;
+	angular_damp = 0.1;
 	priority = 0;
 	monitoring = false;
 	monitorable = false;
 	collision_mask = 1;
 	collision_layer = 1;
-	set_ray_pickable(false);
 	set_monitoring(true);
 	set_monitorable(true);
 

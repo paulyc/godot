@@ -316,9 +316,14 @@ String ShaderCompilerGLES2::_dump_node_code(SL::Node *p_node, int p_level, Gener
 			for (Map<StringName, SL::ShaderNode::Uniform>::Element *E = snode->uniforms.front(); E; E = E->next()) {
 				StringBuffer<> uniform_code;
 
-				uniform_code += "uniform ";
+				// use highp if no precision is specified to prevent different default values in fragment and vertex shader
+				SL::DataPrecision precision = E->get().precision;
+				if (precision == SL::PRECISION_DEFAULT && E->get().type != SL::TYPE_BOOL) {
+					precision = SL::PRECISION_HIGHP;
+				}
 
-				uniform_code += _prestr(E->get().precision);
+				uniform_code += "uniform ";
+				uniform_code += _prestr(precision);
 				uniform_code += _typestr(E->get().type);
 				uniform_code += " ";
 				uniform_code += _mkid(E->key());
@@ -354,6 +359,21 @@ String ShaderCompilerGLES2::_dump_node_code(SL::Node *p_node, int p_level, Gener
 
 				vertex_global += final_code;
 				fragment_global += final_code;
+			}
+
+			// constants
+
+			for (Map<StringName, SL::ShaderNode::Constant>::Element *E = snode->constants.front(); E; E = E->next()) {
+				String gcode;
+				gcode += "const ";
+				gcode += _prestr(E->get().precision);
+				gcode += _typestr(E->get().type);
+				gcode += " " + _mkid(E->key());
+				gcode += "=";
+				gcode += _dump_node_code(E->get().initializer, p_level, r_gen_code, p_actions, p_default_actions, p_assigning);
+				gcode += ";\n";
+				vertex_global += gcode;
+				fragment_global += gcode;
 			}
 
 			// functions
@@ -490,7 +510,97 @@ String ShaderCompilerGLES2::_dump_node_code(SL::Node *p_node, int p_level, Gener
 				}
 			}
 		} break;
+		case SL::Node::TYPE_ARRAY_DECLARATION: {
 
+			SL::ArrayDeclarationNode *var_dec_node = (SL::ArrayDeclarationNode *)p_node;
+
+			StringBuffer<> declaration;
+
+			declaration += _prestr(var_dec_node->precision);
+			declaration += _typestr(var_dec_node->datatype);
+
+			for (int i = 0; i < var_dec_node->declarations.size(); i++) {
+
+				if (i > 0) {
+					declaration += ",";
+				}
+
+				declaration += " ";
+
+				declaration += _mkid(var_dec_node->declarations[i].name);
+				declaration += "[";
+				declaration += itos(var_dec_node->declarations[i].size);
+				declaration += "]";
+				int sz = var_dec_node->declarations[i].initializer.size();
+				if (sz > 0) {
+					declaration += "=";
+					declaration += _typestr(var_dec_node->datatype);
+					declaration += "[";
+					declaration += itos(sz);
+					declaration += "]";
+					declaration += "(";
+					for (int j = 0; j < sz; j++) {
+						declaration += _dump_node_code(var_dec_node->declarations[i].initializer[j], p_level, r_gen_code, p_actions, p_default_actions, p_assigning);
+						if (j != sz - 1) {
+							declaration += ", ";
+						}
+					}
+					declaration += ")";
+				}
+			}
+
+			code += declaration.as_string();
+		} break;
+		case SL::Node::TYPE_ARRAY: {
+			SL::ArrayNode *var_node = (SL::ArrayNode *)p_node;
+
+			if (p_assigning && p_actions.write_flag_pointers.has(var_node->name)) {
+				*p_actions.write_flag_pointers[var_node->name] = true;
+			}
+
+			if (p_default_actions.usage_defines.has(var_node->name) && !used_name_defines.has(var_node->name)) {
+				String define = p_default_actions.usage_defines[var_node->name];
+
+				if (define.begins_with("@")) {
+					define = p_default_actions.usage_defines[define.substr(1, define.length())];
+				}
+
+				r_gen_code.custom_defines.push_back(define.utf8());
+				used_name_defines.insert(var_node->name);
+			}
+
+			if (p_actions.usage_flag_pointers.has(var_node->name) && !used_flag_pointers.has(var_node->name)) {
+				*p_actions.usage_flag_pointers[var_node->name] = true;
+				used_flag_pointers.insert(var_node->name);
+			}
+
+			if (p_default_actions.renames.has(var_node->name)) {
+				code += p_default_actions.renames[var_node->name];
+			} else {
+				code += _mkid(var_node->name);
+			}
+
+			if (var_node->call_expression != NULL) {
+				code += ".";
+				code += _dump_node_code(var_node->call_expression, p_level, r_gen_code, p_actions, p_default_actions, p_assigning);
+			}
+
+			if (var_node->index_expression != NULL) {
+				code += "[";
+				code += _dump_node_code(var_node->index_expression, p_level, r_gen_code, p_actions, p_default_actions, p_assigning);
+				code += "]";
+			}
+
+			if (var_node->name == time_name) {
+				if (current_func_name == vertex_name) {
+					r_gen_code.uses_vertex_time = true;
+				}
+				if (current_func_name == fragment_name || current_func_name == light_name) {
+					r_gen_code.uses_fragment_time = true;
+				}
+			}
+
+		} break;
 		case SL::Node::TYPE_CONSTANT: {
 			SL::ConstantNode *const_node = (SL::ConstantNode *)p_node;
 
@@ -934,6 +1044,7 @@ ShaderCompilerGLES2::ShaderCompilerGLES2() {
 	actions[VS::SHADER_SPATIAL].render_mode_defines["specular_disabled"] = "#define SPECULAR_DISABLED\n";
 	actions[VS::SHADER_SPATIAL].render_mode_defines["shadows_disabled"] = "#define SHADOWS_DISABLED\n";
 	actions[VS::SHADER_SPATIAL].render_mode_defines["ambient_light_disabled"] = "#define AMBIENT_LIGHT_DISABLED\n";
+	actions[VS::SHADER_SPATIAL].render_mode_defines["shadow_to_opacity"] = "#define USE_SHADOW_TO_OPACITY\n";
 
 	// No defines for particle shaders in GLES2, there are no GPU particles
 

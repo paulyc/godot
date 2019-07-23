@@ -144,7 +144,7 @@ bool PackedSourcePCK::try_open_pack(const String &p_path) {
 	uint32_t magic = f->get_32();
 
 	if (magic != 0x43504447) {
-		//maybe at he end.... self contained exe
+		//maybe at the end.... self contained exe
 		f->seek_end();
 		f->seek(f->get_position() - 4);
 		magic = f->get_32();
@@ -272,7 +272,7 @@ int FileAccessPack::get_buffer(uint8_t *p_dst, int p_length) const {
 	if (eof)
 		return 0;
 
-	int64_t to_read = p_length;
+	uint64_t to_read = p_length;
 	if (to_read + pos > pf.size) {
 		eof = true;
 		to_read = int64_t(pf.size) - int64_t(pos);
